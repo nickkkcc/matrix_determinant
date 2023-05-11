@@ -34,10 +34,13 @@ int main(int argc, char** argv)
     boost::timer::cpu_timer timer;
 
     std::vector<double> simpleAlgTime(0);
+    std::vector<double> simpleAlgTimeForThread(0);
+    std::vector<double> simpleAlgVarianceInForThread(0);
 
     
     std::vector<double> threadAlgTime(0);
     std::vector<double> threadAlgTimeInForThread(0);
+    std::vector<double> threadAlgVarianceInForThread(0);
 
 
     for (size_t thread_s = 1; thread_s <= thread_max; thread_s++)
@@ -47,83 +50,84 @@ int main(int argc, char** argv)
         for (size_t sampl = 0; sampl < sample_max; sampl++)
         {
             MatrixXd matrix{ 10 * MatrixXd::Random(n,n) };
-            if (thread_s == thread_max) {
-                
-                timer.start();
-                double resultSimple{ simpleDeterminant(matrix) };
-                timer.stop();
+            timer.start();
+            double resultSimple{ simpleDeterminant(matrix) };
+            timer.stop();
 
-                simpleAlgTime.push_back(atof(timer.format(6, "%w").c_str()));
-                std::printf("\n\tSimpleTime: %.3e s\n", simpleAlgTime.at(sampl));
-            }
+            simpleAlgTime.push_back(atof(timer.format(6, "%w").c_str()));
+            std::printf("\n\tSimpleTime: %.3f s\n", simpleAlgTime.at(sampl));
 
             timer.start();
             double resultThread{ threadDetermenant(matrix, thread_s) };
             timer.stop();
 
             threadAlgTime.push_back(atof(timer.format(6, "%w").c_str()));
-            std::printf("\n\tthreadTime: %.3e s\n", threadAlgTime.at(sampl));
+            std::printf("\n\tthreadTime: %.3f s\n", threadAlgTime.at(sampl));
         }
 
         
-        accumulator_set<double, features<tag::mean>> accThreadMean;
+        accumulator_set<double, features<tag::mean, tag::variance>> accThreadMean;
+        accumulator_set<double, features<tag::mean, tag::variance>> accSimpleMean;
         accumulator_set<double, features<tag::mean>> accMPIMean;
 
         for (auto var : threadAlgTime) {
             accThreadMean(var);
         }
+        
+        for (auto var : simpleAlgTime) {
+            accSimpleMean(var);
+        }
+
         threadAlgTimeInForThread.push_back(boost::accumulators::mean(accThreadMean));
-        std::printf("\nMean time thread:%.3e\n\n", boost::accumulators::mean(accThreadMean));
+        threadAlgVarianceInForThread.push_back(boost::accumulators::variance(accThreadMean));
+        
+        simpleAlgTimeForThread.push_back(boost::accumulators::mean(accSimpleMean));
+        simpleAlgVarianceInForThread.push_back(boost::accumulators::variance(accSimpleMean));
+
+
+        std::printf("\nMean time thread:%.3f\n\n", boost::accumulators::mean(accThreadMean));
+        std::printf("\nMean time simple:%.3f\n\n", boost::accumulators::mean(accSimpleMean));
         //for () {}
 
     }
 
-    accumulator_set<double, features<tag::mean, tag::variance>> accSimple;
-    accumulator_set<double, features<tag::mean, tag::variance>> accThread;
     //accumulator_set<double, features<tag::mean, tag::variance>> accMPI;
 
-    for (auto var : threadAlgTimeInForThread) {
-        accThread(var);
-    }
-    for (auto var : simpleAlgTime) {
-        accSimple(var);
-    }
 
-    double simpleMean{ boost::accumulators::mean(accSimple) };
-    double threadMean {boost::accumulators::mean(accThread)};
     //double mpiMean{ 0 };
 
-    double simpleVariance{ boost::accumulators::variance(accSimple) };
-    double threadVariance{ boost::accumulators::variance(accThread) };
     //double mpiVariance{ 0 };
 
     ///for () {}
     
     students_t dist(thread_max - 1);
     double T = boost::math::quantile(complement(dist, 0.05 / 2));
-    double wSimple = T * simpleVariance / std::sqrt(double(simpleAlgTime.size()));
-    double wThread = T * threadVariance / std::sqrt(double(threadAlgTimeInForThread.size()));
+    double wSimple = T * simpleAlgTimeForThread.at(thread_max - 1) / std::sqrt(double(simpleAlgTimeForThread.size()));
+    double wThread = T * threadAlgVarianceInForThread.at(thread_max - 1) / std::sqrt(double(threadAlgTimeInForThread.size()));
 
     //double wMPI{ 0 };
 
-    double lowerLimitSimple = simpleMean - wSimple;
-    double upperLimitSimple = simpleMean + wSimple;
+    double lowerLimitSimple = simpleAlgTimeForThread.at(thread_max - 1) - wSimple;
+    double upperLimitSimple = simpleAlgTimeForThread.at(thread_max - 1) + wSimple;
     
-    double lowerLimitThread = threadMean - wThread;
-    double upperLimitThread = threadMean + wThread;
+    double lowerLimitThread = threadAlgVarianceInForThread.at(thread_max - 1) - wThread;
+    double upperLimitThread = threadAlgVarianceInForThread.at(thread_max - 1) + wThread;
     
     /*double lowerLimitThread = threadMean - wThread;
     double upperLimitThread = threadMean + wThread;*/
 
 
-    std::printf("\t\t\t\tAll statistic:\n\n\nthread_number\tsimple_mean\tthread_mean\tmpi_mean\n\n");
+    std::printf("\t\t\t\tAll statistic:\n\n\nthread_number\tthread_mean\tsimple_mean\tmpi_mean\n\n");
     for (int i = 1; i <= thread_max; i++)
     {
-        std::printf("\t[%d]\t\t%.3f\t\t%.3f\t%.3f\n", i, threadAlgTime.at(i), simpleMean, 0.0);
+        std::printf("\t[%d]\t\t%.3e\t\t%.3f\t%.3e\n", i, threadAlgTimeInForThread.at(i -1 ), simpleAlgTimeForThread.at(i - 1), 0.0);
     }
     std::printf("Statistic for %d samples, p:%.2f%%:\n", sample_max, 95.);
-    std::printf("\tThread: [mean: %.3e, variance: %.3e,confidence interval: (%.3e;%.3e)]\n",threadMean, threadVariance, lowerLimitThread, upperLimitThread);
-    std::printf("\tSimple: [mean: %.3e, variance: %.3e,confidence interval: (%.3e;%.3e)]\n",simpleMean, simpleVariance, lowerLimitSimple, upperLimitSimple);
+    std::printf("\tThread: [mean: %.3e, variance: %.3e,confidence interval: (%.3e;%.3e)]\n",threadAlgTimeInForThread.at(thread_max -1),
+        threadAlgVarianceInForThread.at(thread_max - 1), lowerLimitThread, upperLimitThread);
+    std::printf("\tSimple: [mean: %.3e, variance: %.3e,confidence interval: (%.3e;%.3e)]\n", simpleAlgTimeForThread.at(thread_max - 1),
+        simpleAlgVarianceInForThread.at(thread_max - 1),
+        lowerLimitSimple, upperLimitSimple);
 
     // -------------------------------------------------
 

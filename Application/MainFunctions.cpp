@@ -25,7 +25,9 @@ double threadDetermenant(const MatrixXd& matrix, const uint16_t threadCount)
 		std::printf("Превышено кол-во потоков. Выбрано %d из %d", threadCount, htc);
 		exit(-1);
 	}
+
 	boost::asio::thread_pool pool(threadCount);
+
 	double determinant = 0;
 
 	for (size_t j = 0; j < matrix.cols(); j++)

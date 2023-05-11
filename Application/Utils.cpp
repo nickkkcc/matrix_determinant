@@ -14,7 +14,6 @@ void getMinor(const MatrixXd& matrix, MatrixXd& subMatrix, uint16_t j)
 		subMatrix = matrix.block(1, 0, matrix.rows() - 1, matrix.cols() - 1);
 	}
 	else {
-
 		subMatrix << matrix.block(1, 0, matrix.rows() - 1, j),
 			matrix.block(1, j + 1, matrix.rows() - 1, matrix.cols() - j - 1);
 	}
