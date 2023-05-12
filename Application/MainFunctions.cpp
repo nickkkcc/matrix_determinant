@@ -1,4 +1,7 @@
 #include "Utils.h"
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/defer.hpp>
+#include <boost/thread.hpp>
 
 double simpleDeterminant(const MatrixXd& matrix)
 {
@@ -35,7 +38,7 @@ double threadDetermenant(const MatrixXd& matrix, const uint16_t threadCount)
 		MatrixXd subMatrix{ MatrixXd::Zero(matrix.rows() - 1, matrix.cols() - 1) };
 		getMinor(matrix, subMatrix, j);
 
-		boost::asio::post(pool, boost::bind(calculateAddition, j, subMatrix, boost::atomic_ref<double>(determinant), matrix(0, j)));
+		boost::asio::defer(pool, boost::bind(calculateAddition, j, subMatrix, boost::atomic_ref<double>(determinant), matrix(0, j)));
 	}
 	pool.join();
 	return determinant;

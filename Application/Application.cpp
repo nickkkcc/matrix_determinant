@@ -36,6 +36,7 @@ int main(int argc, char** argv)
     std::vector<double> simpleAlgTime(0);
     std::vector<double> simpleAlgTimeForThread(0);
     std::vector<double> simpleAlgVarianceInForThread(0);
+    std::vector<double> grow(0);
 
     
     std::vector<double> threadAlgTime(0);
@@ -54,14 +55,14 @@ int main(int argc, char** argv)
             double resultSimple{ simpleDeterminant(matrix) };
             timer.stop();
 
-            simpleAlgTime.push_back(atof(timer.format(6, "%w").c_str()));
+            simpleAlgTime.push_back(atof(timer.format(10, "%w").c_str()));
             std::printf("\n\tSimpleTime: %.3f s\n", simpleAlgTime.at(sampl));
 
             timer.start();
             double resultThread{ threadDetermenant(matrix, thread_s) };
             timer.stop();
 
-            threadAlgTime.push_back(atof(timer.format(6, "%w").c_str()));
+            threadAlgTime.push_back(atof(timer.format(10, "%w").c_str()));
             std::printf("\n\tthreadTime: %.3f s\n", threadAlgTime.at(sampl));
         }
 
@@ -84,9 +85,15 @@ int main(int argc, char** argv)
         simpleAlgTimeForThread.push_back(boost::accumulators::mean(accSimpleMean));
         simpleAlgVarianceInForThread.push_back(boost::accumulators::variance(accSimpleMean));
 
+        double grow_value{100 - boost::accumulators::mean(accThreadMean) * 100 /
+            boost::accumulators::mean(accSimpleMean)};
+        grow.push_back(grow_value);
 
-        std::printf("\nMean time thread:%.3f\n\n", boost::accumulators::mean(accThreadMean));
-        std::printf("\nMean time simple:%.3f\n\n", boost::accumulators::mean(accSimpleMean));
+
+        std::printf("\nMean time thread:%.3f\n", boost::accumulators::mean(accThreadMean));
+        std::printf("Mean time simple:%.3f\n", boost::accumulators::mean(accSimpleMean));
+        std::printf("Mean grow:%.3f%%\n\n", grow_value);
+        
         //for () {}
 
     }
@@ -102,8 +109,8 @@ int main(int argc, char** argv)
     
     students_t dist(thread_max - 1);
     double T = boost::math::quantile(complement(dist, 0.05 / 2));
-    double wSimple = T * simpleAlgTimeForThread.at(thread_max - 1) / std::sqrt(double(simpleAlgTimeForThread.size()));
-    double wThread = T * threadAlgVarianceInForThread.at(thread_max - 1) / std::sqrt(double(threadAlgTimeInForThread.size()));
+    double wSimple = T * simpleAlgTimeForThread.at(thread_max - 1) / std::sqrt(double(simpleAlgTimeForThread.size())) / 2;
+    double wThread = T * threadAlgVarianceInForThread.at(thread_max - 1) / std::sqrt(double(threadAlgTimeInForThread.size())) / 2;
 
     //double wMPI{ 0 };
 
