@@ -9,6 +9,10 @@ double simpleDeterminant(const MatrixXd& matrix)
 			matrix(0, 1) * matrix(1, 0);
 	}
 
+	if (matrix.size() == 1) {
+		return matrix(0, 0);
+	}
+
 	double determinant = 0;
 	MatrixXd subMatrix;
 	for (size_t j = 0; j < matrix.cols(); j++) {
@@ -43,83 +47,71 @@ double threadDetermenant(const MatrixXd& matrix, const uint16_t threadCount)
 	return determinant;
 }
 
-double mpiDeterminant(MatrixXd *matrix, int numOfWorkers, int rank, int owner)
+double mpiDeterminant(int n, boost::mpi::communicator& world, boost::mpi::environment& env)
 {
-	double determinant = 0;
-	int SEND{ 1 };
-	int STOP{ 2 };
-	// for owner
-	if (!rank) {
-		MPI_Status* status = new MPI_Status;;
-		//MatrixXd subMatrix;
+    Eigen::MatrixXd matrix(n, n);
+    int subMatrixSize = (matrix.cols() - 1) * (matrix.rows() - 1);
+    Eigen::MatrixXd subMatrix(matrix.rows() - 1, matrix.cols() - 1);
 
-		int *buff_send_owner = new int(0);
-		double *buff_recv_owner = new double(0);
 
-		std::vector<int> clients{0,0,0,1,0};
+    double value{ 0 };
+    double determinant{ 0 };
+    std::vector<double> total_determinant(world.size());
+    double common_determenant{ 0 };
+    const int matrixCols = matrix.cols() - 1;
+    const int matrixRows = matrix.rows() - 1;
 
-		for (int i = 0; i < matrix->cols();)
-		{
-			for (size_t j = 1; j < 5; j++) {
-				if (clients[j] != 1) {
-					std::cout << "Owner sending:" << i << std::endl;
-					MPI_Send(&i, 1, MPI_INTEGER, j, SEND, MPI_COMM_WORLD);
-					i++;
-					clients[j] = 1;
-				}
-			}
-			
-			MPI_Recv(buff_recv_owner, 1, MPI_INTEGER, MPI_ANY_SOURCE, SEND, MPI_COMM_WORLD, status);
-			std::printf("Owner recevied %d data from %d", *buff_recv_owner, status->MPI_SOURCE);
-			clients[status->MPI_SOURCE] = 0;
-		}
-		//	//getMinor(*matrix, subMatrix, i);
-		//	determinant += std::powf(-1, 1 + (i + 1)) * (*matrix)(0, i) * simpleDeterminant(subMatrix);
-		//	i++;
-		//	std::cout << "owner  listen" << rank;
-		//	MPI_Recv(buff_recv_owner, 1, MPI_DOUBLE, MPI_ANY_SOURCE, SEND, MPI_COMM_WORLD, status);
-		//	clients[status->MPI_SOURCE] = 0;
-		//	determinant += *buff_recv_owner;
-		//}
-		//delete buff_recv_owner, buff_send_owner, status;
-		//for (size_t j = 1; j < clients.size(); j++) {
-		//		std::cout << "owner  send" << rank;
-		//		*buff_send_owner = j;
-		//		MPI_Send(buff_send_owner, 1, MPI_INTEGER, j, STOP, MPI_COMM_WORLD);
-		//}
-	}
+    if (world.rank() == OWNER) {
+        matrix = 10 * Eigen::MatrixXd::Random(n, n);
+        //std::cout << matrix << std::endl << std::endl;
+    }
 
-	
-	// for workers
-	if (rank) {
-		//MPI_Status* status = new MPI_Status;
-		//MatrixXd subMatrix;
-		//double* buff_send_worker = new double(0);
-		//int* buff_recv_worker = new int(0);
-		//while (true) {
-		//	std::cout << "client  listen" << rank;
+    for (int j = 0; j <= matrixCols;) {
+        if (world.rank() == OWNER) {
+            for (int worker = OWNER + 1; worker < world.size(); worker++)
+            {
+                value = std::powf(-1, 1 + (j + 1)) * matrix(0, j);
+                getMinor(matrix, subMatrix, j);
+                std::vector<double> subMatrixSTL(subMatrix.data(), subMatrix.data() + subMatrixSize);
+                j++;
+                world.send(worker, VALUE_TAG, &value, 1);
+                world.send(worker, SUBMATRIX_TAG, &subMatrixSTL[0], subMatrixSize);
+            }
 
-		//	MPI_Recv(buff_recv_worker, 1, MPI_INTEGER, owner, SEND, MPI_COMM_WORLD, status);
-		//	if (status->MPI_TAG == STOP) { break; }
+                value = std::powf(-1, 1 + (j + 1)) * matrix(0, j);
+                getMinor(matrix, subMatrix, j);
+                j++;
+                common_determenant += value * simpleDeterminant(subMatrix);
+                //std::cout << "Worker #" << world.rank() << ", value: " << value << ", minor: \n" << subMatrix << std::endl << std::endl;
 
-		//	//getMinor(*matrix, subMatrix, *buff_recv_worker);
-		//	*buff_send_worker = std::powf(-1, 1 + (*buff_recv_worker + 1)) * (*matrix)(0, *buff_recv_worker) * simpleDeterminant(subMatrix);
-		//	std::cout << "client  send" << rank;
-		//	MPI_Send(buff_send_worker, 1, MPI_DOUBLE, owner, SEND, MPI_COMM_WORLD);
-		//}
-		//delete status, buff_send_worker, buff_recv_worker;
-	/*	while (true) {
-			MPI_Status status;
-			int t = 0;
-			
-			MPI_Recv(&t, 1, MPI_INTEGER, owner, SEND, MPI_COMM_WORLD, &status);
-			MatrixXd subMatrix{ Matrix::Ones((matrix->rows() - 1, matrix->cols() - 1)) };
-			getMinor(*matrix, subMatrix, t);
-			std::cout << subMatrix << std::endl;
-			std::printf("Worker %d receved data", t);
-			MPI_Send(&t, 1, MPI_INTEGER, owner, SEND, MPI_COMM_WORLD);
-			std::printf("Worker %d sended data", t);
-		}*/
-	}
-	return determinant;
+            for (int i = OWNER + 1; i < world.size(); i++)
+            {
+                world.send(i, J_COUNT, &j, 1);
+            }
+            for (size_t i = 0; i < world.size() - 1 && world.size() != 1; i++)
+            {
+                world.recv(MPI_ANY_SOURCE, DETERMINANT, &determinant, 1);
+                common_determenant += determinant;
+            }
+
+        }
+        else {
+            std::vector<double> subMatrixSTL(subMatrixSize);
+            world.recv(OWNER, VALUE_TAG, &value, 1);
+            world.recv(OWNER, SUBMATRIX_TAG, &subMatrixSTL[0], subMatrixSize);
+            world.recv(OWNER, J_COUNT, &j, 1);
+            subMatrix = Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>>(subMatrixSTL.data(), matrixRows, matrixCols);
+            //std::cout << "Worker #" << world.rank() << ", value: " << value << ", minor: \n" << subMatrix << std::endl << std::endl;
+            determinant = value * simpleDeterminant(subMatrix);
+            world.send(OWNER, DETERMINANT, &determinant, 1);
+        }
+
+    }
+    if (world.rank() == OWNER) {
+        std::printf("Determinant is %.3f and simple %.3f\n\n", common_determenant, simpleDeterminant(matrix));
+        return common_determenant;
+    }
+    else {
+        return  0.;
+    }
 }
